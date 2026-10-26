@@ -1,17 +1,17 @@
-"""Daily Amsterdam job scan: JobSpy (Indeed, Glassdoor, Google) + Apify Indeed actor.
+"""Daily Amsterdam job scan: JobSpy (Glassdoor, Google Jobs).
+
+Indeed and LinkedIn are NOT scraped here: they run through Apify from the Claude scheduled task.
 
 LinkedIn is deliberately excluded. Output: data/latest.csv (rolling file, newest first)
 and data/seen.json (dedupe memory). Excludes sales / business-development titles.
 """
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-import requests
 from jobspy import scrape_jobs
 
 DATA = Path("data")
@@ -49,7 +49,9 @@ def run_jobspy() -> pd.DataFrame:
         for term in terms:
             try:
                 df = scrape_jobs(
-                    site_name=["indeed", "glassdoor", "google"],  # no linkedin
+                    # No linkedin (excluded by user) and no indeed (handled by Apify).
+                    # zip_recruiter is US/CA-only; bayt/naukri/bdjobs/hellowork don't serve Amsterdam.
+                    site_name=["glassdoor", "google"],
                     search_term=term,
                     google_search_term=f"{term} jobs in Amsterdam since last week",
                     location=LOCATION,
@@ -70,50 +72,6 @@ def run_jobspy() -> pd.DataFrame:
             df["source"] = "jobspy:" + df["site"].astype(str)
             frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-
-def run_apify() -> pd.DataFrame:
-    token = os.environ.get("APIFY_TOKEN")
-    actor = os.environ.get("APIFY_ACTOR", "misceres~indeed-scraper")
-    if not token:
-        print("[apify] APIFY_TOKEN not set, skipping", file=sys.stderr)
-        return pd.DataFrame()
-    rows = []
-    url = f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items"
-    # Cost control: actor charges ~$0.006 per listing on the free tier, so only the
-    # first 2 queries per track go to Apify, 15 listings each (<= 90 listings, ~$0.54/day).
-    for track, terms in QUERIES.items():
-        for term in terms[:2]:
-            payload = {"position": term, "country": "NL", "location": "Amsterdam",
-                       "maxItemsPerSearch": 15}
-            try:
-                # Token in the Authorization header (never the URL); cap items and spend per run.
-                r = requests.post(
-                    url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    params={"maxItems": 15, "maxTotalChargeUsd": 0.15},
-                    json=payload,
-                    timeout=300,
-                )
-                r.raise_for_status()
-                items = r.json()
-            except Exception as exc:
-                print(f"[apify] {term!r} failed: {exc}", file=sys.stderr)
-                continue
-            for it in items:
-                if it.get("error") or it.get("isExpired"):
-                    continue
-                rows.append({
-                    "title": it.get("positionName"),
-                    "company": it.get("company"),
-                    "location": it.get("location"),
-                    "job_url": it.get("externalApplyLink") or it.get("url"),
-                    "date_posted": it.get("postingDateParsed") or it.get("scrapedAt"),
-                    "description": it.get("description") or "",
-                    "salary": it.get("salary"),
-                    "track": track, "query": term, "source": "apify:indeed",
-                })
-    return pd.DataFrame(rows)
 
 
 def normalise(df: pd.DataFrame) -> pd.DataFrame:
@@ -137,7 +95,7 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     seen = set(json.loads(SEEN_FILE.read_text())) if SEEN_FILE.exists() else set()
-    df = normalise(pd.concat([run_jobspy(), run_apify()], ignore_index=True))
+    df = normalise(run_jobspy())
     if df.empty:
         print("No results this run.")
         return

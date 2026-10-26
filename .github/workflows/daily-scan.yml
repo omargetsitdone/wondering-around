@@ -1,8 +1,8 @@
-name: Daily job scan
+name: Job scan (JobSpy)
 
 on:
   schedule:
-    - cron: "17 5 * * *"   # 05:17 UTC = 06:17/07:17 Amsterdam
+    - cron: "17 5 */3 * *"   # every 3 days, 05:17 UTC
   workflow_dispatch:
 
 permissions:
@@ -20,9 +20,6 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Run scan
-        env:
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-          APIFY_ACTOR: misceres~indeed-scraper
         run: python scan.py
       - name: Commit results
         run: |
