@@ -19,6 +19,7 @@ DATA.mkdir(exist_ok=True)
 SEEN_FILE = DATA / "seen.json"
 LATEST = DATA / "latest.csv"
 
+LOG = []
 LOCATION = "Amsterdam, Netherlands"
 RESULTS_PER_QUERY = 25
 HOURS_OLD = 72
@@ -63,8 +64,11 @@ def run_jobspy() -> pd.DataFrame:
                     verbose=0,
                 )
             except Exception as exc:  # one failing site/query must not kill the run
-                print(f"[jobspy] {term!r} failed: {exc}", file=sys.stderr)
+                msg = f"[jobspy] {term!r} failed: {type(exc).__name__}: {str(exc)[:300]}"
+                print(msg, file=sys.stderr)
+                LOG.append(msg)
                 continue
+            LOG.append(f"[jobspy] {term!r}: {0 if df is None else len(df)} rows")
             if df is None or df.empty:
                 continue
             df["track"] = track
@@ -95,7 +99,10 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     seen = set(json.loads(SEEN_FILE.read_text())) if SEEN_FILE.exists() else set()
-    df = normalise(run_jobspy())
+    raw = run_jobspy()
+    df = normalise(raw)
+    LOG.append(f"raw rows {len(raw)}, after filters {len(df)}")
+    (DATA / "last_run.log").write_text("\n".join(LOG))
     if df.empty:
         print("No results this run.")
         return
