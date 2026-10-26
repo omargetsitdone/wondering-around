@@ -6,6 +6,7 @@ LinkedIn is deliberately excluded. Output: data/latest.csv (rolling file, newest
 and data/seen.json (dedupe memory). Excludes sales / business-development titles.
 """
 import json
+import logging
 import re
 import sys
 from datetime import datetime, timezone
@@ -44,37 +45,49 @@ DUTCH_REQUIRED = re.compile(
     r"native dutch|nederlands (als moedertaal|vereist)|excellent .{0,20}dutch)", re.I)
 
 
+class _ListHandler(logging.Handler):
+    def emit(self, record):
+        LOG.append(f"  [{record.name}] {record.levelname}: {record.getMessage()[:300]}")
+
+
 def run_jobspy() -> pd.DataFrame:
+    logging.getLogger("JobSpy").setLevel(logging.INFO)
+    for name in list(logging.root.manager.loggerDict):
+        if name.startswith("JobSpy"):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.INFO)
+            lg.addHandler(_ListHandler())
     frames = []
+    # No linkedin (excluded by user) and no indeed (handled by Apify).
+    # zip_recruiter is US/CA-only; bayt/naukri/bdjobs/hellowork don't serve Amsterdam.
     for track, terms in QUERIES.items():
         for term in terms:
-            try:
-                df = scrape_jobs(
-                    # No linkedin (excluded by user) and no indeed (handled by Apify).
-                    # zip_recruiter is US/CA-only; bayt/naukri/bdjobs/hellowork don't serve Amsterdam.
-                    site_name=["glassdoor", "google"],
-                    search_term=term,
-                    google_search_term=f"{term} jobs in Amsterdam since last week",
-                    location=LOCATION,
-                    distance=15,
-                    results_wanted=RESULTS_PER_QUERY,
-                    hours_old=HOURS_OLD,
-                    country_indeed="netherlands",
-                    description_format="markdown",
-                    verbose=0,
-                )
-            except Exception as exc:  # one failing site/query must not kill the run
-                msg = f"[jobspy] {term!r} failed: {type(exc).__name__}: {str(exc)[:300]}"
-                print(msg, file=sys.stderr)
-                LOG.append(msg)
-                continue
-            LOG.append(f"[jobspy] {term!r}: {0 if df is None else len(df)} rows")
-            if df is None or df.empty:
-                continue
-            df["track"] = track
-            df["query"] = term
-            df["source"] = "jobspy:" + df["site"].astype(str)
-            frames.append(df)
+            for site in ("glassdoor", "google"):
+                try:
+                    df = scrape_jobs(
+                        site_name=[site],
+                        search_term=term,
+                        google_search_term=f"{term} jobs in Amsterdam since last week",
+                        location=LOCATION,
+                        distance=15,
+                        results_wanted=RESULTS_PER_QUERY,
+                        hours_old=HOURS_OLD,
+                        country_indeed="netherlands",
+                        description_format="markdown",
+                        verbose=2,
+                    )
+                except Exception as exc:  # one failing site/query must not kill the run
+                    msg = f"[jobspy] {site}/{term!r} failed: {type(exc).__name__}: {str(exc)[:300]}"
+                    print(msg, file=sys.stderr)
+                    LOG.append(msg)
+                    continue
+                LOG.append(f"[jobspy] {site}/{term!r}: {0 if df is None else len(df)} rows")
+                if df is None or df.empty:
+                    continue
+                df["track"] = track
+                df["query"] = term
+                df["source"] = "jobspy:" + df["site"].astype(str)
+                frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
