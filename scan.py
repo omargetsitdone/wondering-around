@@ -51,12 +51,8 @@ class _ListHandler(logging.Handler):
 
 
 def run_jobspy() -> pd.DataFrame:
-    logging.getLogger("JobSpy").setLevel(logging.INFO)
-    for name in list(logging.root.manager.loggerDict):
-        if name.startswith("JobSpy"):
-            lg = logging.getLogger(name)
-            lg.setLevel(logging.INFO)
-            lg.addHandler(_ListHandler())
+    logging.root.setLevel(logging.INFO)
+    logging.root.addHandler(_ListHandler())
     frames = []
     # No linkedin (excluded by user) and no indeed (handled by Apify).
     # zip_recruiter is US/CA-only; bayt/naukri/bdjobs/hellowork don't serve Amsterdam.
