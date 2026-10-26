@@ -1,8 +1,5 @@
 # Job scan (Amsterdam, English)
 
-GitHub Action runs every 3 days: JobSpy over Glassdoor and Google Jobs. Results: `data/latest.csv`.
-Indeed and LinkedIn are scraped through Apify (no login, no personal account) by the Claude scheduled task, not this repo.
-No secrets are needed.
-
-Run manually: Actions > "Job scan (JobSpy)" > Run workflow.
-Tune `QUERIES`, `EXCLUDE_TITLE`, `HOURS_OLD` in `scan.py`.
+Scanning now runs entirely through Apify from a Claude scheduled task (every 3 days): Indeed, LinkedIn (public pages, no login) and Glassdoor.
+JobSpy was removed: Glassdoor returns 403 and Google Jobs returns no data when run from GitHub Actions.
+No scripts or secrets are needed in this repo.
